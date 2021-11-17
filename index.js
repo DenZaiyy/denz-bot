@@ -1,17 +1,57 @@
 require('dotenv').config()
 
-const { Client, Collection, Intents } = require('discord.js')
-const client = new Client({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES] })
+const fs = require('fs');
+const { Client, Collection, Intents } = require('discord.js');
+const client = new Client({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES, Intents.FLAGS.GUILD_MESSAGE_REACTIONS, Intents.FLAGS.GUILD_PRESENCES, Intents.FLAGS.GUILD_MEMBERS,] });
 
-const BOT_PREFIX = "!d"
 
-client.on('ready', () =>{
-    console.log(`Connecter en tant que ${client.user.tag} !`);
-})
+const { prefix } = require('./config.json');
 
-client.on("message", msg =>{
-    if(msg.content === `${BOT_PREFIX} + " " + "test"`){
-        msg.reply("this is a test!")
+const commands = [];
+const commandFiles = fs.readdirSync('./commands').filter(file => file.endsWith('.js'));
+const eventFiles = fs.readdirSync('./events').filter(file => file.endsWith('.js'));
+
+
+client.commands = new Collection();
+
+
+for (const file of eventFiles) {
+	const event = require(`./events/${file}`);
+	if (event.once) {
+		client.once(event.name, (...args) => event.execute(...args));
+	} else {
+		client.on(event.name, (...args) => event.execute(...args));
+	}
+}
+
+for (const file of commandFiles) {
+	const command = require(`./commands/${file}`);
+	// Set a new item in the Collection
+	// With the key as the command name and the value as the exported module
+	client.commands.set(command.data.name, command);
+}
+
+
+client.on('interactionCreate', async interaction => {
+	if (!interaction.isCommand()) return;
+
+	const command = client.commands.get(interaction.commandName);
+
+	if (!command) return;
+
+	try {
+		await command.execute(interaction);
+	} catch (error) {
+		console.error(error);
+		await interaction.reply({ content: 'Une erreur s\'est produite lors de l\'exécution de cette commande!', ephemeral: true });
+	}
+});
+
+
+
+client.on("message", msg => {
+    if (msg.content === `${prefix}info`) {
+        msg.reply(`Le nom du discord est: **${msg.guild.name}**\nIl y a un total de: **${msg.guild.memberCount}** membres!`)
     }
 })
 
