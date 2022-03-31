@@ -1,4 +1,5 @@
 require('dotenv').config()
+require('./deploy-commands');
 
 const fs = require('fs');
 const { Client, Collection, Intents } = require('discord.js');
@@ -14,7 +15,6 @@ const eventFiles = fs.readdirSync('./events').filter(file => file.endsWith('.js'
 
 client.commands = new Collection();
 
-
 for (const file of eventFiles) {
 	const event = require(`./events/${file}`);
 	if (event.once) {
@@ -26,11 +26,8 @@ for (const file of eventFiles) {
 
 for (const file of commandFiles) {
 	const command = require(`./commands/${file}`);
-	// Set a new item in the Collection
-	// With the key as the command name and the value as the exported module
 	client.commands.set(command.data.name, command);
 }
-
 
 client.on('interactionCreate', async interaction => {
 	if (!interaction.isCommand()) return;
@@ -47,12 +44,15 @@ client.on('interactionCreate', async interaction => {
 	}
 });
 
-
-
-client.on("message", msg => {
-    if (msg.content === `${prefix}info`) {
-        msg.reply(`Le nom du discord est: **${msg.guild.name}**\nIl y a un total de: **${msg.guild.memberCount}** membres!`)
-    }
+client.on('guildMemberAdd', member => {
+	member.createDM().then(channel => {
+		return channel.send('Bienvenue sur mon serveur ' + member.displayName + '\nNous espérons que tu va pouvoir t\'amuser sur notre discord!')
+	}).catch(console.error)
 })
+
+// client.on('message', message => {
+// 	if (message.author.bot) return;
+// 	if (message.content === `${prefix}`) {}
+// })
 
 client.login(process.env.BOT_TOKEN)
