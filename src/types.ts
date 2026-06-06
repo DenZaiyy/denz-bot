@@ -7,7 +7,8 @@ export interface Command {
 
 export interface Track {
   title: string;
-  url: string;
+  url: string;           // URL YouTube ; chaîne vide = résolution paresseuse via searchQuery
+  searchQuery?: string;  // requête YouTube pour les tracks Spotify en attente de résolution
   thumbnail?: string;
   durationMs: number;
   requestedBy: string;
