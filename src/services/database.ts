@@ -13,22 +13,29 @@ db.exec(`
     guild_id TEXT PRIMARY KEY,
     notification_channel_id TEXT,
     welcome_channel_id TEXT,
-    tracked_streamers TEXT NOT NULL DEFAULT '[]'
+    tracked_streamers TEXT NOT NULL DEFAULT '[]',
+    volume_percent INTEGER NOT NULL DEFAULT 100
   )
 `);
 
 // Migration : ajoute la colonne si elle n'existe pas encore (DB existante)
-try { db.exec('ALTER TABLE guild_settings ADD COLUMN welcome_channel_id TEXT'); } catch {}
+try { db.exec('ALTER TABLE guild_settings ADD COLUMN welcome_channel_id TEXT'); } catch {
+  // La colonne existe déjà.
+}
+try { db.exec('ALTER TABLE guild_settings ADD COLUMN volume_percent INTEGER NOT NULL DEFAULT 100'); } catch {
+  // La colonne existe déjà.
+}
 
 const stmts = {
   get: db.prepare<[string]>('SELECT * FROM guild_settings WHERE guild_id = ?'),
-  upsert: db.prepare<[string, string | null, string | null, string]>(`
-    INSERT INTO guild_settings (guild_id, notification_channel_id, welcome_channel_id, tracked_streamers)
-    VALUES (?, ?, ?, ?)
+  upsert: db.prepare<[string, string | null, string | null, string, number]>(`
+    INSERT INTO guild_settings (guild_id, notification_channel_id, welcome_channel_id, tracked_streamers, volume_percent)
+    VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(guild_id) DO UPDATE SET
       notification_channel_id = excluded.notification_channel_id,
       welcome_channel_id      = excluded.welcome_channel_id,
-      tracked_streamers       = excluded.tracked_streamers
+      tracked_streamers       = excluded.tracked_streamers,
+      volume_percent          = excluded.volume_percent
   `),
   allTracked: db.prepare("SELECT * FROM guild_settings WHERE tracked_streamers != '[]'"),
 };
@@ -38,6 +45,7 @@ type Row = {
   notification_channel_id: string | null;
   welcome_channel_id: string | null;
   tracked_streamers: string;
+  volume_percent: number;
 };
 
 function toSettings(row: Row): GuildSettings {
@@ -46,12 +54,15 @@ function toSettings(row: Row): GuildSettings {
     notificationChannelId: row.notification_channel_id ?? null,
     welcomeChannelId: row.welcome_channel_id ?? null,
     trackedStreamers: JSON.parse(row.tracked_streamers ?? '[]') as string[],
+    volumePercent: row.volume_percent ?? 100,
   };
 }
 
 export function getGuildSettings(guildId: string): GuildSettings {
   const row = stmts.get.get(guildId) as Row | undefined;
-  return row ? toSettings(row) : { guildId, notificationChannelId: null, welcomeChannelId: null, trackedStreamers: [] };
+  return row
+    ? toSettings(row)
+    : { guildId, notificationChannelId: null, welcomeChannelId: null, trackedStreamers: [], volumePercent: 100 };
 }
 
 export function saveGuildSettings(settings: GuildSettings): void {
@@ -60,6 +71,7 @@ export function saveGuildSettings(settings: GuildSettings): void {
     settings.notificationChannelId,
     settings.welcomeChannelId,
     JSON.stringify(settings.trackedStreamers),
+    settings.volumePercent,
   );
 }
 

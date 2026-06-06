@@ -2,7 +2,8 @@ import { joinVoiceChannel, VoiceConnectionStatus, entersState, AudioPlayerStatus
 import type { VoiceChannel, GuildMember } from 'discord.js';
 import type { SendableChannel } from './GuildQueue';
 import { GuildQueue } from './GuildQueue';
-import { createStream } from '../youtube';
+import { createStream, resolveAudioQuality } from '../youtube';
+import { getGuildSettings, saveGuildSettings } from '../database';
 import { buildNowPlayingEmbed, buildMusicButtons } from './nowPlayingEmbed';
 import type { Track, LoopMode } from '../../types';
 
@@ -10,6 +11,15 @@ const IDLE_DISCONNECT_MS = 5 * 60 * 1000;
 
 class MusicService {
   private queues = new Map<string, GuildQueue>();
+
+  private async ensureAudioQuality(track: Track): Promise<void> {
+    if (track.audioQuality) return;
+    try {
+      track.audioQuality = await resolveAudioQuality(track.url);
+    } catch (err) {
+      console.warn(`[AudioQuality] Impossible d'analyser "${track.title}":`, err);
+    }
+  }
 
   private getPlaybackMs(queue: GuildQueue): number {
     const state = queue.player.state;
@@ -61,6 +71,7 @@ class MusicService {
       const track = queue.current;
       queue.isPaused = false;
       try {
+        await this.ensureAudioQuality(track);
         queue.player.play(createStream(track, queue.volume));
         await this.updateNowPlayingEmbed(guildId);
       } catch (err) {
@@ -93,6 +104,7 @@ class MusicService {
     queue.current = next;
     queue.isPaused = false;
     try {
+      await this.ensureAudioQuality(next);
       queue.player.play(createStream(next, queue.volume));
       await this.sendNowPlayingEmbed(guildId);
     } catch (err) {
@@ -106,6 +118,10 @@ class MusicService {
     if (existing) return existing;
 
     const channel = member.voice.channel as VoiceChannel;
+    console.log(
+      `[AudioQuality] Salon "${channel.name}" (${member.guild.name}): `
+      + `bitrate Discord=${Math.round(channel.bitrate / 1000)} kb/s`,
+    );
     const connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: member.guild.id,
@@ -114,6 +130,7 @@ class MusicService {
     await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
 
     const queue = new GuildQueue(connection, () => void this.playNext(member.guild.id));
+    queue.volume = getGuildSettings(member.guild.id).volumePercent / 100;
     this.queues.set(member.guild.id, queue);
     connection.on(VoiceConnectionStatus.Disconnected, async () => {
       try {
@@ -205,19 +222,25 @@ class MusicService {
     this.queues.delete(guildId);
   }
 
-  setVolume(guildId: string, percent: number): boolean {
+  setVolume(guildId: string, percent: number): void {
+    const settings = getGuildSettings(guildId);
+    settings.volumePercent = percent;
+    saveGuildSettings(settings);
+
     const queue = this.queues.get(guildId);
-    if (!queue) return false;
+    if (!queue) return;
     queue.volume = percent / 100;
     if (queue.player.state.status === AudioPlayerStatus.Playing) {
       (queue.player.state as AudioPlayerPlayingState).resource.volume?.setVolume(queue.volume);
     }
-    return true;
+    void this.updateNowPlayingEmbed(guildId);
   }
 
-  getVolume(guildId: string): number | null {
+  getVolume(guildId: string): number {
     const queue = this.queues.get(guildId);
-    return queue ? Math.round(queue.volume * 100) : null;
+    return queue
+      ? Math.round(queue.volume * 100)
+      : getGuildSettings(guildId).volumePercent;
   }
 
   getQueue(guildId: string): { current: Track | null; upcoming: Track[] } {

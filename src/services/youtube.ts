@@ -17,7 +17,24 @@ interface YtdlpVideo {
   webpage_url: string;
   id?: string;
   thumbnail?: string;
+  format_id?: string;
+  acodec?: string;
+  audio_ext?: string;
+  ext?: string;
+  abr?: number;
+  tbr?: number;
+  asr?: number;
   entries?: YtdlpVideo[];
+}
+
+function getAudioQuality(video: YtdlpVideo): Track['audioQuality'] {
+  return {
+    formatId: video.format_id,
+    codec: video.acodec,
+    container: video.audio_ext ?? video.ext,
+    bitrateKbps: video.abr ?? video.tbr,
+    sampleRateHz: video.asr,
+  };
 }
 
 function isUrl(input: string): boolean {
@@ -64,6 +81,7 @@ export async function resolve(input: string): Promise<{
   title: string;
   durationMs: number;
   thumbnail?: string;
+  audioQuality?: Track['audioQuality'];
 } | null> {
   // Spotify URLs: scrape OG tags → build YouTube search query
   let spotifyThumbnail: string | undefined;
@@ -78,6 +96,7 @@ export async function resolve(input: string): Promise<{
 
   const raw = await ytdlp.youtubeDl(input, {
     dumpSingleJson: true,
+    format: 'bestaudio',
     noWarnings: true,
     noPlaylist: true,
     quiet: true,
@@ -91,10 +110,37 @@ export async function resolve(input: string): Promise<{
     title: video.title,
     durationMs: (video.duration ?? 0) * 1000,
     thumbnail: spotifyThumbnail ?? video.thumbnail,
+    audioQuality: getAudioQuality(video),
   };
 }
 
+export async function resolveAudioQuality(url: string): Promise<Track['audioQuality']> {
+  const raw = await ytdlp.youtubeDl(url, {
+    dumpSingleJson: true,
+    format: 'bestaudio',
+    noWarnings: true,
+    noPlaylist: true,
+    quiet: true,
+  }) as unknown as YtdlpVideo;
+
+  return getAudioQuality(raw.entries?.[0] ?? raw);
+}
+
 export function createStream(track: Track, volume = 1) {
+  const quality = track.audioQuality;
+  if (quality) {
+    const details = [
+      quality.formatId && `format=${quality.formatId}`,
+      quality.codec && `codec=${quality.codec}`,
+      quality.container && `container=${quality.container}`,
+      quality.bitrateKbps && `source≈${Math.round(quality.bitrateKbps)} kb/s`,
+      quality.sampleRateHz && `sampleRate=${quality.sampleRateHz} Hz`,
+    ].filter(Boolean);
+    console.log(`[AudioQuality] Source "${track.title}": ${details.join(', ') || 'détails indisponibles'}`);
+  } else {
+    console.log(`[AudioQuality] Source "${track.title}": détails indisponibles (entrée de playlist)`);
+  }
+
   const proc = spawn(BIN, [
     track.url,
     '-f', 'bestaudio',

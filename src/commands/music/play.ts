@@ -78,6 +78,7 @@ const command: Command = {
         thumbnail: info.thumbnail,
         durationMs: info.durationMs,
         requestedBy: member.displayName,
+        audioQuality: info.audioQuality,
       };
 
       const { position, wasPlaying } = await musicService.enqueue(member, track, textChannel);

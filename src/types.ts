@@ -12,6 +12,13 @@ export interface Track {
   thumbnail?: string;
   durationMs: number;
   requestedBy: string;
+  audioQuality?: {
+    formatId?: string;
+    codec?: string;
+    container?: string;
+    bitrateKbps?: number;
+    sampleRateHz?: number;
+  };
 }
 
 export type LoopMode = 'none' | 'track' | 'queue';
@@ -21,6 +28,7 @@ export interface GuildSettings {
   notificationChannelId: string | null;
   welcomeChannelId: string | null;
   trackedStreamers: string[];
+  volumePercent: number;
 }
 
 declare module 'discord.js' {

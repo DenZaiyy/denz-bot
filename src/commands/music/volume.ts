@@ -20,20 +20,12 @@ const command: Command = {
 
     if (percent === null) {
       const current = musicService.getVolume(interaction.guildId!);
-      if (current === null) {
-        await interaction.reply({ content: 'Aucune musique en cours.', ephemeral: true });
-      } else {
-        await interaction.reply({ content: `🔊 Volume actuel : **${current}%**`, ephemeral: true });
-      }
+      await interaction.reply({ content: `🔊 Volume actuel : **${current}%**`, ephemeral: true });
       return;
     }
 
-    const ok = musicService.setVolume(interaction.guildId!, percent);
-    if (!ok) {
-      await interaction.reply({ content: 'Aucune musique en cours.', ephemeral: true });
-    } else {
-      await interaction.reply(`🔊 Volume réglé à **${percent}%**`);
-    }
+    musicService.setVolume(interaction.guildId!, percent);
+    await interaction.reply(`🔊 Volume réglé à **${percent}%**`);
   },
 };
 
