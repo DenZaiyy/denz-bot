@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, GuildMember } from 'discord.js';
 import type { Command, Track } from '../../types';
 import { musicService } from '../../services/music/MusicService';
-import { resolve } from '../../services/youtube';
+import { resolve, isPlaylistUrl, resolvePlaylist } from '../../services/youtube';
 import type { SendableChannel } from '../../services/music/GuildQueue';
 
 function formatDuration(ms: number): string {
@@ -22,16 +22,49 @@ const command: Command = {
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {
-    await interaction.deferReply({ ephemeral: true });
-
     const member = interaction.member as GuildMember;
+
     if (!member.voice.channelId) {
-      await interaction.editReply('Tu dois être dans un salon vocal pour utiliser cette commande.');
+      await interaction.reply({ content: 'Tu dois être dans un salon vocal pour utiliser cette commande.', ephemeral: true });
       return;
     }
 
-    const query = interaction.options.getString('query', true);
+    // Defer public : les messages d'ajout à la file seront visibles par tous
+    await interaction.deferReply({ ephemeral: false });
 
+    const query = interaction.options.getString('query', true);
+    const textChannel = interaction.channel as SendableChannel;
+
+    // — Playlist YouTube —
+    if (isPlaylistUrl(query)) {
+      try {
+        await interaction.editReply('⏳ Chargement de la playlist…');
+        const entries = await resolvePlaylist(query);
+        if (!entries.length) {
+          await interaction.editReply('❌ Playlist vide ou inaccessible.');
+          return;
+        }
+        const tracks: Track[] = entries.map(e => ({
+          title: e.title,
+          url: e.url,
+          thumbnail: e.thumbnail,
+          durationMs: e.durationMs,
+          requestedBy: member.displayName,
+        }));
+        const { total, wasPlaying } = await musicService.enqueueMany(member, tracks, textChannel);
+        await interaction.editReply(
+          wasPlaying
+            ? `✅ **${total}** musiques ajoutées à la file depuis la playlist.`
+            : `▶ Lecture lancée ! **${total}** musiques chargées depuis la playlist.`,
+        );
+      } catch (err) {
+        console.error('[play:playlist]', err);
+        await interaction.editReply('❌ Impossible de charger la playlist.');
+      }
+      return;
+    }
+
+    // — Piste unique (YouTube URL, Spotify URL, ou recherche texte) —
     try {
       const info = await resolve(query);
       if (!info) {
@@ -47,14 +80,10 @@ const command: Command = {
         requestedBy: member.displayName,
       };
 
-      const { position, wasPlaying } = await musicService.enqueue(
-        member,
-        track,
-        interaction.channel as SendableChannel,
-      );
+      const { position, wasPlaying } = await musicService.enqueue(member, track, textChannel);
 
       if (!wasPlaying) {
-        await interaction.editReply('▶ Lecture lancée !');
+        await interaction.editReply(`▶ Lecture lancée : **${info.title}** \`[${formatDuration(info.durationMs)}]\``);
       } else {
         await interaction.editReply(
           `Ajouté à la file **#${position}** : **${info.title}** \`[${formatDuration(info.durationMs)}]\``,
@@ -62,7 +91,7 @@ const command: Command = {
       }
     } catch (err) {
       console.error('[play]', err);
-      await interaction.editReply('Impossible de lire ce contenu.');
+      await interaction.editReply('❌ Impossible de lire ce contenu.');
     }
   },
 };

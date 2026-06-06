@@ -115,7 +115,19 @@ class MusicService {
 
     const queue = new GuildQueue(connection, () => void this.playNext(member.guild.id));
     this.queues.set(member.guild.id, queue);
-    connection.on(VoiceConnectionStatus.Disconnected, () => this.queues.delete(member.guild.id));
+    connection.on(VoiceConnectionStatus.Disconnected, async () => {
+      try {
+        // Wait briefly — if Discord is just reconnecting, stay alive
+        await Promise.race([
+          entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+          entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+        ]);
+      } catch {
+        // Permanent disconnect: clean up fully
+        queue.destroy();
+        this.queues.delete(member.guild.id);
+      }
+    });
     return queue;
   }
 
@@ -127,6 +139,16 @@ class MusicService {
     queue.tracks.push(track);
     if (!queue.current) await this.playNext(member.guild.id);
     return { position: queue.tracks.length, wasPlaying };
+  }
+
+  async enqueueMany(member: GuildMember, tracks: Track[], textChannel: SendableChannel): Promise<{ total: number; wasPlaying: boolean }> {
+    if (!member.voice.channelId) throw new Error('You must be in a voice channel.');
+    const queue = await this.getOrCreateQueue(member);
+    queue.textChannel = textChannel;
+    const wasPlaying = !!queue.current;
+    queue.tracks.push(...tracks);
+    if (!queue.current) await this.playNext(member.guild.id);
+    return { total: tracks.length, wasPlaying };
   }
 
   async togglePause(guildId: string): Promise<boolean | null> {

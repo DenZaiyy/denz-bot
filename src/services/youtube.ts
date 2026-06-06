@@ -15,12 +15,48 @@ interface YtdlpVideo {
   title: string;
   duration: number;
   webpage_url: string;
+  id?: string;
   thumbnail?: string;
   entries?: YtdlpVideo[];
 }
 
 function isUrl(input: string): boolean {
   return /^https?:\/\//i.test(input);
+}
+
+export function isPlaylistUrl(input: string): boolean {
+  if (!isUrl(input)) return false;
+  try {
+    const u = new URL(input);
+    if (u.hostname === 'youtu.be') return false; // toujours une vidéo unique
+    return u.searchParams.has('list') && !u.searchParams.has('v');
+  } catch {
+    return false;
+  }
+}
+
+export async function resolvePlaylist(url: string): Promise<Array<{ url: string; title: string; durationMs: number; thumbnail?: string }>> {
+  const raw = await ytdlp.youtubeDl(url, {
+    dumpSingleJson: true,
+    noWarnings: true,
+    quiet: true,
+    flatPlaylist: true,
+  }) as unknown as YtdlpVideo;
+
+  if (!raw.entries?.length) return [];
+
+  return raw.entries
+    .map(e => {
+      const videoUrl = e.webpage_url ?? (e.id ? `https://www.youtube.com/watch?v=${e.id}` : null);
+      if (!videoUrl) return null;
+      return {
+        url: videoUrl,
+        title: e.title ?? 'Sans titre',
+        durationMs: (e.duration ?? 0) * 1000,
+        thumbnail: e.thumbnail,
+      };
+    })
+    .filter((e): e is NonNullable<typeof e> => e !== null);
 }
 
 export async function resolve(input: string): Promise<{
