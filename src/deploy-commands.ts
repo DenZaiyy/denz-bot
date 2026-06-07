@@ -1,16 +1,18 @@
 import { REST, Routes } from 'discord.js';
 import { readdirSync } from 'fs';
+import { createRequire } from 'module';
 import { join } from 'path';
 import { config } from './config';
 import type { Command } from './types';
 
 const commands: object[] = [];
+const requireModule = createRequire(__filename);
 
 for (const dir of ['music', 'utility', 'admin']) {
   const dirPath = join(__dirname, 'commands', dir);
   const files = readdirSync(dirPath).filter(f => /\.(js|ts)$/.test(f) && !f.endsWith('.d.ts'));
   for (const file of files) {
-    const mod = require(join(dirPath, file)) as { default: Command };
+    const mod = requireModule(join(dirPath, file)) as { default: Command };
     commands.push(mod.default.data.toJSON());
   }
 }

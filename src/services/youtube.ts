@@ -1,10 +1,11 @@
 import { spawn } from 'child_process';
 import { createAudioResource, StreamType } from '@discordjs/voice';
+import { createRequire } from 'module';
 import { isSpotifyUrl, resolveSpotifyTrack } from './spotify';
 import type { Track } from '../types';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const ytdlp = require('youtube-dl-exec') as {
+const requireModule = createRequire(__filename);
+const ytdlp = requireModule('youtube-dl-exec') as {
   youtubeDl: (url: string, flags?: Record<string, unknown>) => Promise<unknown>;
   constants: { YOUTUBE_DL_PATH: string };
 };

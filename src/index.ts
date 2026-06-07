@@ -1,5 +1,6 @@
 import { Client, Collection, GatewayIntentBits } from 'discord.js';
 import { readdirSync } from 'fs';
+import { createRequire } from 'module';
 import { join } from 'path';
 import ffmpegPath from 'ffmpeg-static';
 import { config } from './config';
@@ -18,6 +19,7 @@ const client = new Client({
 });
 
 client.commands = new Collection<string, Command>();
+const requireModule = createRequire(__filename);
 
 function loadCommands(): void {
   for (const dir of ['music', 'utility', 'admin']) {
@@ -31,7 +33,7 @@ function loadCommands(): void {
     }
     for (const file of files) {
       try {
-        const mod = require(join(dirPath, file)) as { default: Command };
+        const mod = requireModule(join(dirPath, file)) as { default: Command };
         client.commands.set(mod.default.data.name, mod.default);
         console.log(`[Commands] Loaded: ${mod.default.data.name}`);
       } catch (err) {
@@ -45,7 +47,7 @@ function loadEvents(): void {
   const eventDir = join(__dirname, 'events');
   const files = readdirSync(eventDir).filter(f => /\.(js|ts)$/.test(f) && !f.endsWith('.d.ts'));
   for (const file of files) {
-    const mod = require(join(eventDir, file)) as { default: (...args: unknown[]) => void; once?: boolean };
+    const mod = requireModule(join(eventDir, file)) as { default: (...args: unknown[]) => void; once?: boolean };
     const eventName = file.replace(/\.(js|ts)$/, '');
     if (mod.once) {
       client.once(eventName, (...args) => mod.default(client, ...args));

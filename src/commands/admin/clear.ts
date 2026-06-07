@@ -49,12 +49,14 @@ const command: Command = {
     let hitAgeLimit = false;
 
     try {
-      while (true) {
+      let hasMoreMessages = true;
+      while (hasMoreMessages) {
         const batchSize = amount !== null ? Math.min(amount - deleted, 100) : 100;
         if (batchSize <= 0) break;
 
         const messages = await channel.messages.fetch({ limit: batchSize });
         if (messages.size === 0) break;
+        hasMoreMessages = messages.size === batchSize;
 
         // Sépare les messages récents (bulk delete) des anciens (suppression unitaire)
         const recent = messages.filter(m => m.createdTimestamp > cutoff);
@@ -86,7 +88,6 @@ const command: Command = {
         }
 
         // Fin : plus aucun message ou quota atteint
-        if (messages.size < batchSize) break;
         if (amount !== null && deleted >= amount) break;
 
         // Pause entre les batches

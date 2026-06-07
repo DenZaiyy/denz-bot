@@ -1,4 +1,4 @@
-import type { ChatInputCommandInteraction, GuildMember } from 'discord.js';
+import type { ChatInputCommandInteraction } from 'discord.js';
 
 export async function checkSameVoice(interaction: ChatInputCommandInteraction): Promise<boolean> {
   const botChannelId = interaction.guild?.members.me?.voice?.channelId ?? null;

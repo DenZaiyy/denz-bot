@@ -177,7 +177,9 @@ const command: Command = {
         try {
           const user = await TwitchService.instance?.getUserByName(login);
           profilePictureUrl = user?.profilePictureUrl;
-        } catch {}
+        } catch {
+          // La notification de test peut utiliser l'embed sans photo de profil.
+        }
 
         try {
           const channel = await interaction.client.channels.fetch(settings.notificationChannelId) as TextChannel;
