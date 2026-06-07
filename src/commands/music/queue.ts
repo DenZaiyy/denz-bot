@@ -31,6 +31,7 @@ const command: Command = {
     }
 
     await interaction.reply({ embeds: [embed] });
+    musicService.trackSessionMessage(interaction.guildId!, await interaction.fetchReply());
   },
 };
 

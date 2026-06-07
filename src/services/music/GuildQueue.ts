@@ -12,9 +12,11 @@ export class GuildQueue {
   volume = 1;
   isPaused = false;
   loopMode: LoopMode = 'none';
+  shuffleEnabled = false;
   textChannel: SendableChannel | null = null;
   nowPlayingMessage: Message | null = null;
-  private progressInterval: NodeJS.Timeout | null = null;
+  sessionMessages = new Set<Message>();
+  idleDisconnectTimer: NodeJS.Timeout | null = null;
 
   constructor(connection: VoiceConnection, onIdle: () => void) {
     this.connection = connection;
@@ -27,24 +29,19 @@ export class GuildQueue {
     });
   }
 
-  startProgressUpdates(fn: () => void): void {
-    this.stopProgressUpdates();
-    this.progressInterval = setInterval(fn, 15_000);
-  }
-
-  stopProgressUpdates(): void {
-    if (this.progressInterval) {
-      clearInterval(this.progressInterval);
-      this.progressInterval = null;
-    }
-  }
-
   get isEmpty(): boolean {
     return this.tracks.length === 0 && !this.current;
   }
 
+  cancelIdleDisconnect(): void {
+    if (this.idleDisconnectTimer) {
+      clearTimeout(this.idleDisconnectTimer);
+      this.idleDisconnectTimer = null;
+    }
+  }
+
   destroy(): void {
-    this.stopProgressUpdates();
+    this.cancelIdleDisconnect();
     this.player.stop(true);
     this.connection.destroy();
   }

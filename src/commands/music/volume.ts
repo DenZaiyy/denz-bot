@@ -26,6 +26,7 @@ const command: Command = {
 
     musicService.setVolume(interaction.guildId!, percent);
     await interaction.reply(`🔊 Volume réglé à **${percent}%**`);
+    musicService.trackSessionMessage(interaction.guildId!, await interaction.fetchReply());
   },
 };
 

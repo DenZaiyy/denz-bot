@@ -52,11 +52,12 @@ const command: Command = {
           requestedBy: member.displayName,
         }));
         const { total, wasPlaying } = await musicService.enqueueMany(member, tracks, textChannel);
-        await interaction.editReply(
+        const reply = await interaction.editReply(
           wasPlaying
             ? `✅ **${total}** musiques ajoutées à la file depuis la playlist.`
             : `▶ Lecture lancée ! **${total}** musiques chargées depuis la playlist.`,
         );
+        musicService.trackSessionMessage(interaction.guildId!, reply);
       } catch (err) {
         console.error('[play:playlist]', err);
         await interaction.editReply('❌ Impossible de charger la playlist.');
@@ -84,11 +85,13 @@ const command: Command = {
       const { position, wasPlaying } = await musicService.enqueue(member, track, textChannel);
 
       if (!wasPlaying) {
-        await interaction.editReply(`▶ Lecture lancée : **${info.title}** \`[${formatDuration(info.durationMs)}]\``);
+        const reply = await interaction.editReply(`▶ Lecture lancée : **${info.title}** \`[${formatDuration(info.durationMs)}]\``);
+        musicService.trackSessionMessage(interaction.guildId!, reply);
       } else {
-        await interaction.editReply(
+        const reply = await interaction.editReply(
           `Ajouté à la file **#${position}** : **${info.title}** \`[${formatDuration(info.durationMs)}]\``,
         );
+        musicService.trackSessionMessage(interaction.guildId!, reply);
       }
     } catch (err) {
       console.error('[play]', err);

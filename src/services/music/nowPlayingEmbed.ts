@@ -6,36 +6,46 @@ function fmt(ms: number): string {
   return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 }
 
-function bar(current: number, total: number, len = 22): string {
-  if (!total) return '░'.repeat(len);
-  const filled = Math.min(len, Math.round((current / total) * len));
-  return '█'.repeat(filled) + '░'.repeat(len - filled);
-}
-
-const LOOP_ICON: Record<LoopMode, string> = {
-  none: '',
-  track: ' 🔂',
-  queue: ' 🔁',
+const LOOP_LABEL: Record<LoopMode, string> = {
+  none: 'Désactivée',
+  track: 'Piste',
+  queue: 'File',
 };
+
+function formatQuality(track: Track): string {
+  const quality = track.audioQuality;
+  if (!quality) return 'Meilleure disponible';
+
+  const details = [
+    quality.codec?.toUpperCase(),
+    quality.bitrateKbps ? `${Math.round(quality.bitrateKbps)} kb/s` : null,
+    quality.sampleRateHz ? `${Math.round(quality.sampleRateHz / 1000)} kHz` : null,
+  ].filter(Boolean);
+
+  return details.join(' • ') || 'Meilleure disponible';
+}
 
 export function buildNowPlayingEmbed(
   track: Track,
   isPaused: boolean,
-  playbackMs: number,
-  upcomingCount: number,
+  nextTrack: Track | null,
   volume: number,
   loopMode: LoopMode = 'none',
+  shuffleEnabled = false,
 ): EmbedBuilder {
-  const icon = isPaused ? '⏸' : '▶';
   return new EmbedBuilder()
     .setColor(isPaused ? 0x99aab5 : 0x5865f2)
+    .setAuthor({ name: isPaused ? '⏸ En pause' : '▶ Lecture en cours' })
     .setTitle(track.title)
     .setURL(track.url)
-    .setDescription(`${icon}${LOOP_ICON[loopMode]}  \`${bar(playbackMs, track.durationMs)}\`  \`${fmt(playbackMs)} / ${fmt(track.durationMs)}\``)
     .addFields(
-      { name: 'Demandé par', value: track.requestedBy, inline: true },
+      { name: 'Durée', value: fmt(track.durationMs), inline: true },
       { name: 'Volume', value: `${Math.round(volume * 100)}%`, inline: true },
-      { name: "File d'attente", value: upcomingCount > 0 ? `${upcomingCount} chanson(s)` : 'Vide', inline: true },
+      { name: 'Qualité', value: formatQuality(track), inline: true },
+      { name: 'Demandé par', value: track.requestedBy, inline: true },
+      { name: 'Boucle', value: LOOP_LABEL[loopMode], inline: true },
+      { name: 'Shuffle', value: shuffleEnabled ? 'Activé' : 'Désactivé', inline: true },
+      { name: 'À suivre', value: nextTrack ? `[${nextTrack.title}](${nextTrack.url})` : 'Fin de la file', inline: false },
     )
     .setThumbnail(track.thumbnail ?? null);
 }

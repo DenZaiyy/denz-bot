@@ -1,5 +1,5 @@
 import { joinVoiceChannel, VoiceConnectionStatus, entersState, AudioPlayerStatus, AudioPlayerPlayingState } from '@discordjs/voice';
-import type { VoiceChannel, GuildMember } from 'discord.js';
+import type { VoiceChannel, GuildMember, Message } from 'discord.js';
 import type { SendableChannel } from './GuildQueue';
 import { GuildQueue } from './GuildQueue';
 import { createStream, resolveAudioQuality } from '../youtube';
@@ -11,6 +11,39 @@ const IDLE_DISCONNECT_MS = 5 * 60 * 1000;
 
 class MusicService {
   private queues = new Map<string, GuildQueue>();
+  private statusMessages = new Map<string, Message>();
+
+  async replaceStatusMessage(guildId: string, send: () => Promise<Message>): Promise<void> {
+    const previous = this.statusMessages.get(guildId);
+    this.statusMessages.delete(guildId);
+    if (previous) {
+      try {
+        await previous.delete();
+      } catch {
+        // Le message a peut-être déjà été supprimé manuellement.
+      }
+    }
+    const message = await send();
+    this.statusMessages.set(guildId, message);
+    this.trackSessionMessage(guildId, message);
+  }
+
+  trackSessionMessage(guildId: string, message: Message): void {
+    this.queues.get(guildId)?.sessionMessages.add(message);
+  }
+
+  private async clearSessionMessages(guildId: string, queue: GuildQueue): Promise<void> {
+    if (queue.nowPlayingMessage) {
+      queue.sessionMessages.add(queue.nowPlayingMessage);
+      queue.nowPlayingMessage = null;
+    }
+
+    await Promise.allSettled(
+      [...queue.sessionMessages].map(message => message.delete()),
+    );
+    queue.sessionMessages.clear();
+    this.statusMessages.delete(guildId);
+  }
 
   private async ensureAudioQuality(track: Track): Promise<void> {
     if (track.audioQuality) return;
@@ -21,25 +54,23 @@ class MusicService {
     }
   }
 
-  private getPlaybackMs(queue: GuildQueue): number {
-    const state = queue.player.state;
-    if (state.status === AudioPlayerStatus.Playing || state.status === AudioPlayerStatus.Paused) {
-      return (state as AudioPlayerPlayingState).resource.playbackDuration;
-    }
-    return 0;
-  }
-
   async updateNowPlayingEmbed(guildId: string): Promise<void> {
     const queue = this.queues.get(guildId);
     if (!queue?.current || !queue.nowPlayingMessage) return;
     try {
       await queue.nowPlayingMessage.edit({
-        embeds: [buildNowPlayingEmbed(queue.current, queue.isPaused, this.getPlaybackMs(queue), queue.tracks.length, queue.volume, queue.loopMode)],
+        embeds: [buildNowPlayingEmbed(
+          queue.current,
+          queue.isPaused,
+          queue.tracks[0] ?? null,
+          queue.volume,
+          queue.loopMode,
+          queue.shuffleEnabled,
+        )],
         components: [buildMusicButtons(queue.isPaused)],
       });
     } catch {
       queue.nowPlayingMessage = null;
-      queue.stopProgressUpdates();
     }
   }
 
@@ -47,14 +78,25 @@ class MusicService {
     const queue = this.queues.get(guildId);
     if (!queue?.current || !queue.textChannel) return;
 
-    try { await queue.nowPlayingMessage?.delete(); } catch {}
+    try {
+      await queue.nowPlayingMessage?.delete();
+    } catch {
+      // L'ancien panneau a peut-être déjà été supprimé.
+    }
 
     try {
       queue.nowPlayingMessage = await queue.textChannel.send({
-        embeds: [buildNowPlayingEmbed(queue.current, false, 0, queue.tracks.length, queue.volume, queue.loopMode)],
+        embeds: [buildNowPlayingEmbed(
+          queue.current,
+          false,
+          queue.tracks[0] ?? null,
+          queue.volume,
+          queue.loopMode,
+          queue.shuffleEnabled,
+        )],
         components: [buildMusicButtons(false)],
       });
-      queue.startProgressUpdates(() => void this.updateNowPlayingEmbed(guildId));
+      queue.sessionMessages.add(queue.nowPlayingMessage);
     } catch (err) {
       console.error('[NowPlaying] Failed to send embed:', err);
     }
@@ -63,8 +105,6 @@ class MusicService {
   private async playNext(guildId: string): Promise<void> {
     const queue = this.queues.get(guildId);
     if (!queue) return;
-
-    queue.stopProgressUpdates();
 
     // Loop track: rejouer la chanson actuelle
     if (queue.loopMode === 'track' && queue.current) {
@@ -90,17 +130,27 @@ class MusicService {
     const next = queue.tracks.shift();
 
     if (!next) {
-      if (queue.nowPlayingMessage) {
-        try { await queue.nowPlayingMessage.edit({ components: [] }); } catch {}
-        queue.nowPlayingMessage = null;
-      }
       queue.current = null;
-      setTimeout(() => {
-        if (queue.isEmpty) { queue.destroy(); this.queues.delete(guildId); }
+      if (queue.nowPlayingMessage) {
+        try {
+          await queue.nowPlayingMessage.edit({ components: [] });
+        } catch {
+          queue.nowPlayingMessage = null;
+        }
+      }
+      queue.cancelIdleDisconnect();
+      queue.idleDisconnectTimer = setTimeout(() => {
+        if (this.queues.get(guildId) !== queue || !queue.isEmpty) return;
+        this.queues.delete(guildId);
+        void (async () => {
+          await this.clearSessionMessages(guildId, queue);
+          queue.destroy();
+        })();
       }, IDLE_DISCONNECT_MS);
       return;
     }
 
+    queue.cancelIdleDisconnect();
     queue.current = next;
     queue.isPaused = false;
     try {
@@ -151,9 +201,11 @@ class MusicService {
   async enqueue(member: GuildMember, track: Track, textChannel: SendableChannel): Promise<{ position: number; wasPlaying: boolean }> {
     if (!member.voice.channelId) throw new Error('You must be in a voice channel.');
     const queue = await this.getOrCreateQueue(member);
+    queue.cancelIdleDisconnect();
     queue.textChannel = textChannel;
     const wasPlaying = !!queue.current;
     queue.tracks.push(track);
+    if (queue.shuffleEnabled) this.shuffleTracks(queue);
     if (!queue.current) await this.playNext(member.guild.id);
     return { position: queue.tracks.length, wasPlaying };
   }
@@ -161,9 +213,11 @@ class MusicService {
   async enqueueMany(member: GuildMember, tracks: Track[], textChannel: SendableChannel): Promise<{ total: number; wasPlaying: boolean }> {
     if (!member.voice.channelId) throw new Error('You must be in a voice channel.');
     const queue = await this.getOrCreateQueue(member);
+    queue.cancelIdleDisconnect();
     queue.textChannel = textChannel;
     const wasPlaying = !!queue.current;
     queue.tracks.push(...tracks);
+    if (queue.shuffleEnabled) this.shuffleTracks(queue);
     if (!queue.current) await this.playNext(member.guild.id);
     return { total: tracks.length, wasPlaying };
   }
@@ -191,14 +245,20 @@ class MusicService {
     return queue.loopMode;
   }
 
-  shuffleQueue(guildId: string): number {
-    const queue = this.queues.get(guildId);
-    if (!queue || queue.tracks.length < 2) return 0;
+  private shuffleTracks(queue: GuildQueue): void {
     for (let i = queue.tracks.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [queue.tracks[i], queue.tracks[j]] = [queue.tracks[j]!, queue.tracks[i]!];
     }
-    return queue.tracks.length;
+  }
+
+  toggleShuffle(guildId: string): { enabled: boolean; count: number } | null {
+    const queue = this.queues.get(guildId);
+    if (!queue?.current) return null;
+    queue.shuffleEnabled = !queue.shuffleEnabled;
+    if (queue.shuffleEnabled) this.shuffleTracks(queue);
+    void this.updateNowPlayingEmbed(guildId);
+    return { enabled: queue.shuffleEnabled, count: queue.tracks.length };
   }
 
   skip(guildId: string): Track | null {
@@ -212,10 +272,7 @@ class MusicService {
   stop(guildId: string): void {
     const queue = this.queues.get(guildId);
     if (!queue) return;
-    if (queue.nowPlayingMessage) {
-      queue.nowPlayingMessage.edit({ components: [] }).catch(() => {});
-      queue.nowPlayingMessage = null;
-    }
+    void this.clearSessionMessages(guildId, queue);
     queue.tracks = [];
     queue.current = null;
     queue.destroy();

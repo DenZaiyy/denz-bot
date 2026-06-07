@@ -21,6 +21,7 @@ const command: Command = {
       await interaction.reply({ content: 'Rien en cours de lecture.', ephemeral: true });
     } else {
       await interaction.reply(LOOP_LABELS[mode]);
+      musicService.trackSessionMessage(interaction.guildId!, await interaction.fetchReply());
     }
   },
 };

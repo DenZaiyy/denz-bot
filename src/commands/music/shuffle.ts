@@ -6,15 +6,19 @@ import { checkSameVoice } from '../../utils/checkVoice';
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName('shuffle')
-    .setDescription('Mélanger aléatoirement la file d\'attente'),
+    .setDescription('Activer ou désactiver le mode shuffle'),
 
   async execute(interaction: ChatInputCommandInteraction) {
     if (!await checkSameVoice(interaction)) return;
-    const count = musicService.shuffleQueue(interaction.guildId!);
-    if (count === 0) {
-      await interaction.reply({ content: 'La file est vide ou ne contient qu\'une seule chanson.', ephemeral: true });
+    const result = musicService.toggleShuffle(interaction.guildId!);
+    if (!result) {
+      await interaction.reply({ content: 'Rien en cours de lecture.', ephemeral: true });
+    } else if (result.enabled) {
+      await interaction.reply(`🔀 Shuffle activé — **${result.count}** chanson(s) mélangées.`);
+      musicService.trackSessionMessage(interaction.guildId!, await interaction.fetchReply());
     } else {
-      await interaction.reply(`🔀 **${count}** chanson(s) mélangées dans la file.`);
+      await interaction.reply('➡️ Shuffle désactivé.');
+      musicService.trackSessionMessage(interaction.guildId!, await interaction.fetchReply());
     }
   },
 };

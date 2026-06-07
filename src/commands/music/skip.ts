@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, GuildMember } from 'discord.js';
 import type { Command } from '../../types';
 import { musicService } from '../../services/music/MusicService';
 import { checkSameVoice } from '../../utils/checkVoice';
@@ -14,7 +14,11 @@ const command: Command = {
     if (!skipped) {
       await interaction.reply({ content: 'Rien en cours de lecture.', ephemeral: true });
     } else {
-      await interaction.reply(`⏭ **${skipped.title}** passé.`);
+      const actor = (interaction.member as GuildMember).displayName;
+      await musicService.replaceStatusMessage(interaction.guildId!, async () => {
+        await interaction.reply(`⏭ **${skipped.title}** passé par **${actor}**.`);
+        return interaction.fetchReply();
+      });
     }
   },
 };
